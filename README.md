@@ -1,4 +1,3 @@
-# MedicalApp_API_with_Flask
 # Flask API Documentation
 
 ![Untitled design (1)](https://github.com/GeniusApk/Api_With_Flask/assets/101592615/1ce0706f-b980-4524-a640-31046b7e671b)
@@ -272,14 +271,14 @@ Contributions are welcome! Here's how you can contribute to the project:
 
 ## Developer
 
-- **Name:** MOHD AAKIB
+- **Name:** Arbab Shaikh
 - **GitHub:** https://github.com/GeniusApk
 - 
 
 
 ## 🔗 Links
 
-[![linkedin](https://img.shields.io/badge/linkedin-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/mohd-aakib-0546ab272/)
+[![linkedin](https://img.shields.io/badge/linkedin-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/arbab-shaikh/)
 
-[![linkedin](https://img.shields.io/badge/instagram-bc2a8d?style=for-the-badge&logo=instagram&logoColor=white)](https://www.instagram.com/_aakib__21/)
+[![linkedin](https://img.shields.io/badge/instagram-bc2a8d?style=for-the-badge&logo=instagram&logoColor=white)](https://www.instagram.com/application.developer_/)
 

@@ -1,26 +1,36 @@
-from flask import Flask,jsonify,request,Response
+import os
+from datetime import timedelta
 
+from flask import Flask, jsonify, request, Response
+from flask_jwt_extended import (
+    JWTManager, create_access_token,
+    jwt_required, get_jwt_identity
+)
 from werkzeug.utils import secure_filename
-from Medical_DataBase.uploadImg.db import db_init,db
-from Medical_DataBase.uploadImg.models import Img
 
+from Medical_DataBase.uploadImg.db import db_init, db
+from Medical_DataBase.uploadImg.models import Img
 
 from Medical_DataBase.User_DB.CreateUserTable import createTables
 from Medical_DataBase.User_DB.UserAddOperation import createUser
-from Medical_DataBase.User_DB.ReadUserOperation import getAllUsers,getSpecificUser
+from Medical_DataBase.User_DB.ReadUserOperation import getAllUsers, getSpecificUser
 from Medical_DataBase.User_DB.auth import user_auth
-from Medical_DataBase.User_DB.UpdateOperation import update_user_name,upDate_User_All_Fields
+from Medical_DataBase.User_DB.UpdateOperation import updateUserName, upDate_User_All_Fields
 from Medical_DataBase.User_DB.DeleteUserOperation import DeleteUser
 
+from Medical_DataBase.Banner_DB.CreateBannerTable import createBannerTable
+from Medical_DataBase.Banner_DB.ReadBannerOperation import getAllBanners
+from Medical_DataBase.Banner_DB.AddBannerOperation import addBanner
 from Medical_DataBase.Product_DB.CreateProductTable import CreateProductTable
-from Medical_DataBase.Product_DB.ReadProductOperation import getAllProducts,getSpecifiProduct
+from Medical_DataBase.Product_DB.ReadProductOperation import getAllProducts, getSpecifiProduct, searchProducts
 from Medical_DataBase.Product_DB.ProductAddOperation import addProductOperation
 from Medical_DataBase.Product_DB.DeleteProductOperation import deleteProduct
 from Medical_DataBase.Product_DB.UpDateProductOperation import updateProductAllFields
+
 from Medical_DataBase.Order_DB.CreateOrderTable import CreateOrderTable
-from Medical_DataBase.Order_DB.ReadOrderOperation import getAllOrder,getAllOrderThroughUser,getSpecificOrder
+from Medical_DataBase.Order_DB.ReadOrderOperation import getAllOrder, getAllOrderThroughUser, getSpecificOrder
 from Medical_DataBase.Order_DB.OrderAddOperation import addOrderOperation
-from Medical_DataBase.Order_DB.UpdateOrderOperation import updateOrderAllFields 
+from Medical_DataBase.Order_DB.UpdateOrderOperation import updateOrderAllFields
 from Medical_DataBase.Order_DB.DeleteOrderOperation import deleteOrder
 
 from Medical_DataBase.UserStock_DB.AddUserStockOperation import addStockOperation
@@ -29,598 +39,683 @@ from Medical_DataBase.UserStock_DB.DeleteUserStckOperation import deleteStock
 from Medical_DataBase.UserStock_DB.ReadUserStockOperation import getAllStockItem
 from Medical_DataBase.UserStock_DB.UpdateUserStockOperation import updateStockAllFields
 
-from Medical_DataBase.history_db.createHistoryTable  import createHistoryTable
+from Medical_DataBase.history_db.createHistoryTable import createHistoryTable
 from Medical_DataBase.history_db.addHistoryOperation import addSellHistoryOperation
-from Medical_DataBase.history_db.readHistoryOperation import getAllSellHistoryItem,getSpecificSellHistoryItem
+from Medical_DataBase.history_db.readHistoryOperation import getAllSellHistoryItem, getSpecificSellHistoryItem
 from Medical_DataBase.history_db.deleteSellHistoryOperation import deleteSellHistroyItem
 from Medical_DataBase.history_db.updateSalteHistoryOperation import updateSellHistoryItemFields
 
+# ─────────────────────────────────────────────────────────────
+# App setup
+# ─────────────────────────────────────────────────────────────
 
-app =Flask(__name__)
+app = Flask(__name__)
 
-# SQLAlchemy config. Read more: https://flask-sqlalchemy.palletsprojects.com/en/2.x/
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///img.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db_init(app)
 
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'medical-app-dev-secret-change-in-production')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
+jwt = JWTManager(app)
 
 
+# ─────────────────────────────────────────────────────────────
+# Helper — parse JSON body safely
+# ─────────────────────────────────────────────────────────────
 
+def get_json():
+    return request.get_json(force=True, silent=True) or {}
+
+
+# ─────────────────────────────────────────────────────────────
+# Health check
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/')
+def home():
+    return jsonify({"status": 200, "message": "Medical App API is running"})
+
+
+# ─────────────────────────────────────────────────────────────
+# Image
+# ─────────────────────────────────────────────────────────────
 
 @app.route('/getImg/<int:id>')
 def get_img(id):
     img = Img.query.filter_by(id=id).first()
     if not img:
-        return 'Img Not Found!', 404
-
+        return jsonify({"status": 404, "message": "Image not found"}), 404
     return Response(img.img, mimetype=img.mimetype)
 
 
-@app.route("/")
-def home():
-    return "Hello, Flask!"
+# ─────────────────────────────────────────────────────────────
+# User Routes
+# ─────────────────────────────────────────────────────────────
 
-
-# --------------- User Routes ----------------------
-
-
-        # name = request.form['name']
-        # password = request.form['password']
-        # email = request.form['email']
-        # phone = request.form['phone']
-        # address = request.form['address']
-        # pinCode = request.form['pinCode']
 @app.route('/signUp', methods=['POST'])
 def signup():
     try:
-        name = request.form['name']
-        password = request.form['password']
-        email = request.form['email']
-        phone = request.form['phone']
-        address = request.form['address']
-        pinCode = request.form['pinCode']
+        data = get_json()
+        name     = data.get('name', '').strip()
+        password = data.get('password', '')
+        email    = data.get('email', '').strip().lower()
+        phone    = data.get('phone', '').strip()
+        address  = data.get('address', '').strip()
+        pin_code = data.get('pinCode', '').strip()
 
-        data = createUser(name=name, password=password, email=email, phone_Number=phone,
-                          address=address, pinCode=pinCode)
+        if not all([name, password, email, phone, address, pin_code]):
+            return jsonify({"status": 400, "message": "All fields are required"})
 
-        if data:
-            return jsonify({"status": 200, "message": data})
-        else:
-            return jsonify({"status": 400, "message": data })
+        if len(password) < 6:
+            return jsonify({"status": 400, "message": "Password must be at least 6 characters"})
+
+        user_id = createUser(
+            name=name, password=password, email=email,
+            phone_Number=phone, address=address, pinCode=pin_code
+        )
+
+        if not user_id:
+            return jsonify({"status": 400, "message": "Failed to create account"})
+
+        # Auto-login: return token immediately so the app doesn't need a second /Login call
+        token = create_access_token(identity=user_id)
+        user_dict = {
+            "user_id": user_id,
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "address": address,
+            "pin_code": pin_code,
+            "is_approved": 0,
+            "is_blocked": False,
+            "level": 1,
+            "created_at": str(__import__('datetime').date.today())
+        }
+        return jsonify({
+            "status": 200,
+            "message": "Account created successfully",
+            "token": token,
+            "user": user_dict
+        })
 
     except Exception as e:
         return jsonify({"status": 400, "message": str(e)})
 
 
-
-@app.route('/Login' ,methods=['POST'])
+@app.route('/Login', methods=['POST'])
 def login():
     try:
-         email= request.form['email']
-         password = request.form['password']
+        data     = get_json()
+        email    = data.get('email', '').strip().lower()
+        password = data.get('password', '')
 
-         loginData = user_auth(email=email  ,password=password)
+        if not email or not password:
+            return jsonify({"status": 400, "message": "Email and password are required"})
 
-         if loginData:
-          return jsonify({"status" : 200 , "message":loginData[1]})
-         else:
-           return jsonify({"status" : 400 , "message":"Email and Password not same"})
-        
+        user_dict = user_auth(email=email, password=password)
+
+        if user_dict is None:
+            return jsonify({"status": 400, "message": "Invalid email or password"})
+
+        token = create_access_token(identity=user_dict['user_id'])
+
+        return jsonify({
+            "status": 200,
+            "message": "Login successful",
+            "token": token,
+            "user": user_dict
+        })
+
     except Exception as e:
-         return jsonify({"status" : 400 , "message":str(e)})
+        return jsonify({"status": 400, "message": str(e)})
 
-   
-@app.route('/UpDateUserDetails',methods=['PATCH'])
-def UpDateUserNameMain():
+
+@app.route('/me', methods=['GET'])
+@jwt_required()
+def get_current_user():
+    user_id = get_jwt_identity()
+    return getSpecificUser(userID=user_id)
+
+
+@app.route('/getSpecificUser', methods=['POST'])
+@jwt_required()
+def get_specific_user():
     try:
-        UserID =request.form['userID']
-        allfields=request.form.items()
-        updateUser = {}
-
-        for key , value in allfields:
-            if key!='userID':
-             updateUser[key] =value
-
-        upDate_User_All_Fields(userID=UserID,**updateUser)
-
-        return jsonify({"status":200,"message":"Data update"})
+        current_user_id = get_jwt_identity()
+        data = get_json()
+        requested_id = data.get('userID', current_user_id)
+        return getSpecificUser(userID=requested_id)
     except Exception as e:
-            return jsonify({"status":400,"message":str(e)})
-    
-
-@app.route('/updateUserName',methods=['PATCH'])
-def updateUserNameMain():
-     try:
-          newName = request.form['updateName']
-          userId = request.form['userId']
-
-          isUpdate = update_user_name(userId = userId,name = newName)
-               
-          if(isUpdate):  
-                return jsonify({"status":200,"message":"User Name Updated Successfully"})
-          else:
-                return jsonify({"status":400,"message":"User Id not found!"})
-     
-     except Exception as e:
-          return jsonify({"status":400,"message":str(e)})
-     
-    
-
-    
-
-@app.route('/getSpecificUser',methods=['POST'])
-def getSpecificUserMain():
-    try:
-        userID =request.form['userID']
-        getUserInfo = getSpecificUser(userID=userID)
-        return getUserInfo
-    except Exception as e:
-        return jsonify({"status":400,"message": str(e)})
-
+        return jsonify({"status": 400, "message": str(e)})
 
 
 @app.route('/getAllUsers', methods=['GET'])
-def getAllUser():
+@jwt_required()
+def get_all_users():
     return getAllUsers()
 
 
-@app.route('/DeleteUser', methods=['DELETE'])
-def deleteUser():
+@app.route('/UpDateUserDetails', methods=['PATCH'])
+@jwt_required()
+def update_user_details():
     try:
-        UserID = request.form['UserID']
-        isDeleted = DeleteUser(UserID=UserID)
+        current_user_id = get_jwt_identity()
+        data = get_json()
 
-        if(isDeleted) :
-            return jsonify({"Status":200,"message":"User Data Deleted Successfully"})
-        else:
-            return jsonify({"status":400,"message":"User Id not found!"})
-        
+        allowed_fields = {'name', 'email', 'phone', 'address', 'isApproved', 'block', 'level'}
+        update_fields = {k: v for k, v in data.items() if k in allowed_fields}
+
+        if not update_fields:
+            return jsonify({"status": 400, "message": "No valid fields to update"})
+
+        upDate_User_All_Fields(userID=current_user_id, **update_fields)
+        return jsonify({"status": 200, "message": "User updated successfully"})
+
     except Exception as e:
-        return jsonify({"status":400, "message" :str(e)})
+        return jsonify({"status": 400, "message": str(e)})
 
 
-
-# Route to get user status
-@app.route('/getUserStatus/<userId>', methods=['GET'])
-def get_user_status(userId):
-    user = query_db('SELECT * FROM Users WHERE user_id = ?', (userId,), one=True)
-    if user:
-        return jsonify(dict(user)), 200
-    else:
-        return jsonify({"message": "User not found"}), 404
-
-
-
-
-# -------------------- Product Routes -------------------------------
-
-    
-
-    
-
-@app.route('/addProduct',methods=['POST'])
-def addProduct():
+@app.route('/updateUserName', methods=['PATCH'])
+@jwt_required()
+def update_user_name():
     try:
-        name = request.form['product_name']
-        category = request.form['product_category']
-        price = request.form['product_price']
-        stock = request.form['product_stock']
-        expiry_date = request.form['product_expiry_date']
-        rating = request.form['product_rating']
-        description = request.form['product_description']
-        power = request.form['product_power']       
+        current_user_id = get_jwt_identity()
+        data = get_json()
+        new_name = data.get('name', '').strip()
 
-    
-        pic = request.files['pic']
+        if not new_name:
+            return jsonify({"status": 400, "message": "Name is required"})
+
+        is_updated = updateUserName(userId=current_user_id, name=new_name)
+        if is_updated:
+            return jsonify({"status": 200, "message": "Name updated successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Update failed"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/DeleteUser', methods=['DELETE'])
+@jwt_required()
+def delete_user():
+    try:
+        current_user_id = get_jwt_identity()
+        is_deleted = DeleteUser(UserID=current_user_id)
+
+        if is_deleted:
+            return jsonify({"status": 200, "message": "Account deleted successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Delete failed"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+# ─────────────────────────────────────────────────────────────
+# Product Routes (read is public, write is protected)
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/getBanners', methods=['GET'])
+def get_banners():
+    return getAllBanners()
+
+
+@app.route('/addBanner', methods=['POST'])
+@jwt_required()
+def add_banner():
+    try:
+        data = get_json()
+        title         = data.get('title', '').strip()
+        subtitle      = data.get('subtitle', '').strip()
+        image_id      = data.get('image_id')
+        color_hex     = data.get('color_hex', '#1B6CA8').strip()
+        display_order = data.get('display_order', 0)
+
+        if not all([title, subtitle, image_id]):
+            return jsonify({"status": 400, "message": "title, subtitle and image_id are required"})
+
+        banner_id = addBanner(title, subtitle, image_id, color_hex, display_order)
+        if banner_id:
+            return jsonify({"status": 200, "message": "Banner added", "banner_id": banner_id})
+        return jsonify({"status": 400, "message": "Failed to add banner"})
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/getProduct', methods=['GET'])
+def get_products():
+    return getAllProducts()
+
+
+@app.route('/searchProduct', methods=['GET'])
+def search_product():
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify([])
+    return searchProducts(query)
+
+
+@app.route('/getSpecificProduct', methods=['POST'])
+def get_specific_product():
+    try:
+        data = get_json()
+        product_id = data.get('ProductID', '')
+        if not product_id:
+            return jsonify({"status": 400, "message": "ProductID is required"})
+        return getSpecifiProduct(ProductID=product_id)
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/addProduct', methods=['POST'])
+@jwt_required()
+def add_product():
+    try:
+        name        = request.form.get('product_name', '')
+        category    = request.form.get('product_category', '')
+        price       = request.form.get('product_price', '')
+        stock       = request.form.get('product_stock', '')
+        expiry_date = request.form.get('product_expiry_date', '')
+        rating      = request.form.get('product_rating', '')
+        description = request.form.get('product_description', '')
+        power       = request.form.get('product_power', '')
+
+        if not all([name, category, price, stock, expiry_date, rating, description, power]):
+            return jsonify({"status": 400, "message": "All product fields are required"})
+
+        pic = request.files.get('pic')
         if not pic:
-           return 'No pic uploaded!', 400
+            return jsonify({"status": 400, "message": "Product image is required"})
 
         filename = secure_filename(pic.filename)
         mimetype = pic.mimetype
         if not filename or not mimetype:
-             return 'Bad upload!', 400
+            return jsonify({"status": 400, "message": "Invalid image file"})
 
         img = Img(img=pic.read(), name=filename, mimetype=mimetype)
         db.session.add(img)
         db.session.commit()
-    
-        if(validate_product(name,category,price,stock,expiry_date,rating,description,power)):
-               product_id = addProductOperation(
-                name=name,
-                category=category,
-                price=price,
-                stock=stock,
-                expiry_date=expiry_date,
-                rating=rating,
-                description=description,
-                image=img.id,
-                power=power
-            )
-        else:
-             return jsonify({"status": 400, "message": "Mandatory field empty"})
-                 
-        if product_id:
-              return jsonify({"status" : 200,"message" : product_id})
-        else:
-            return jsonify({"status" : 400,"message":product_id})
-    except Exception as e:
-           return jsonify({"status":400,"message":str(e)})      
 
-def validate_product(name,category,price,stock,expiry_date,rating,description,power):
-    if not name or not category or not price or not stock or not expiry_date or not rating or not description or not power:
-        return 0
-    else:
-         return 1
-         
-         
-
-        
-
-
-@app.route('/getProduct',methods=['GET'])
-def getProducts():
-    return getAllProducts()
-
-     
-
-@app.route('/getSpecificProduct',methods=['POST'])
-def getSpecificProductMain():
-    try:
-        ProductID =request.form['ProductID']
-        getProductInfo = getSpecifiProduct(ProductID=ProductID)
-        return getProductInfo
-    except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
-    
-
-@app.route('/deleteProduct',methods=['DELETE'])
-def deleteProductOperation():
-     try:
-          ProductId = request.form['ProductID']
-          isDeleted = deleteProduct(productId=ProductId)
-
-          if isDeleted:  
-                return jsonify({"status":200,"message":"Product Deleted Successfully"})
-          else:
-                return jsonify({"status":400,"message":"Product Id not found!"})
-     
-     except Exception as e:
-          return jsonify({"status":400,"message":str(e)})
-
-@app.route('/updateProducts' ,methods=['PATCH'])
-def UpdateProductsOperation():
-    try:
-        ProductID =request.form['ProductID']
-        allfields=request.form.items()
-        updateProduct = {}
-
-        for key , value in allfields:
-            if key!='ProductID':
-             updateProduct[key] =value
-
-            updateProductAllFields(productId=ProductID ,**updateProduct)
-
-        return jsonify({"status":200,"message":"Product update"})
-    except Exception as e:
-            return jsonify({"status":400,"message":str(e)})
-        
-
-
-
-# ------------------------ ORDER Routes -------------------
-
-
-
-@app.route('/order',methods=['POST'])
-def order():
-
-    try:
-        user_id = request.form['user_id']  #field name
-        product_id = request.form['product_id']
-        product_name = request.form['product_name']
-        product_category = request.form['product_category']
-        product_image_id = request.form['product_image_id']
-        user_name = request.form['user_name']
-        isApproved = request.form['isApproved']
-        quantity = request.form['product_quantity']
-        price = request.form['product_price']
-        subtotalPrice = request.form['subtotal_price']
-        deliveryCharge = request.form['delivery_charge']
-        taxCharge = request.form['tax_charge']
-        totalPrice = request.form['total_price']
-        orderDate = request.form['order_date']
-        user_address = request.form['user_address']
-        user_pinCode = request.form['user_pincode']
-        user_mobile = request.form['user_mobile']
-        user_email = request.form['user_email']
-        order_status = request.form['order_status']
-        order_cancel_status = request.form['order_cancel_status']
-        user_street = request.form['user_street']
-        user_city = request.form['user_city']
-        user_state = request.form['user_state']
-        discountPrice = request.form['discount_price']
-        shipped_date = request.form['shipped_date']
-        out_of_delivery_date = request.form['out_of_delivery_date']
-        delivered_date = request.form['delivered_date']
-
-        orders = addOrderOperation(
-             user_id=user_id,
-                product_id=product_id,product_name=product_name,user_name=user_name,isApproved=isApproved,
-                product_quantity=quantity,product_price=price,totalPrice=totalPrice,orderDate=orderDate,
-                product_category=product_category,product_image_id = product_image_id, subtotal_price=subtotalPrice,
-                tax_charge=taxCharge,delivery_charge=deliveryCharge,user_email=user_email,user_address=user_address,
-                user_mobile=user_mobile,user_pinCode=user_pinCode,order_status=order_status,order_cancel_status=order_cancel_status,
-                user_street=user_street,user_city=user_city,user_state=user_state,discountPrice=discountPrice,
-                shipped_date=shipped_date,out_of_delivery_date=out_of_delivery_date,delivered_date=delivered_date
+        product_id = addProductOperation(
+            name=name, category=category, price=price, stock=stock,
+            expiry_date=expiry_date, rating=rating, description=description,
+            image=img.id, power=power
         )
-        if orders:
-            return jsonify({"status" : 200,"message" : "Order Add Suceesfully"})
+
+        if product_id:
+            return jsonify({"status": 200, "message": "Product added successfully", "product_id": product_id})
         else:
-            return jsonify({"status" : 400,"message":"NO Add Order"})
-        
+            return jsonify({"status": 400, "message": "Failed to add product"})
+
     except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
+        return jsonify({"status": 400, "message": str(e)})
 
 
-
-@app.route('/getAllOrders',methods=['GET'])
-def getOrder():
-     return getAllOrder()
-
-@app.route('/getSpecificOrder',methods=['POST'])
-def getSpecificOrderMain():
-     try:
-          orderId = request.form['order_id']
-          getOrderInfo = getSpecificOrder(orderId = orderId)
-          return getOrderInfo
-     
-     except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
-     
-@app.route('/getAllOrderThroughUser',methods=['POST'])
-def getAllOrderThroughUserMain():
-     try:
-          userId = request.form['user_id']
-          getAllOrderThroughUserList = getAllOrderThroughUser(user_id = userId)
-          return getAllOrderThroughUserList
-     
-     except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
-    
-
-
-   
-
-@app.route('/updateOrder',methods=['PATCH'])
-def updateOrderOperation():
-     try:
-          orderId = request.form['orderId']
-
-          allFields = request.form.items()
-          updateOrder = {}
-
-          for key,value in allFields:
-               if key != 'orderId':
-                    updateOrder[key] = value
-
-          isUpdated = updateOrderAllFields(orderId,**updateOrder)
-
-          if(isUpdated):  
-                 return jsonify({"status":200,"message":"data updated Successfull"})
-          else:
-                return jsonify({"status":400,"message":"Order Id not found!"})
-                    
-     except Exception as e:
-          return jsonify({"status":400,"message":str(e)})
-
-
-
-@app.route('/deleteOrder',methods=['DELETE'])
-def deleteOrderOperation():
+@app.route('/deleteProduct', methods=['DELETE'])
+@jwt_required()
+def delete_product():
     try:
-          orderId = request.form['order_id']
-          isDeleted = deleteOrder(orderId=orderId)
+        data = get_json()
+        product_id = data.get('ProductID', '')
+        if not product_id:
+            return jsonify({"status": 400, "message": "ProductID is required"})
 
-          if(isDeleted):  
-                return jsonify({"status":200,"message":"Order Deleted Successfully"})
-          else:
-                return jsonify({"status":400,"message":"Order Id not found!"})
-     
+        is_deleted = deleteProduct(productId=product_id)
+        if is_deleted:
+            return jsonify({"status": 200, "message": "Product deleted successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Product not found"})
+
     except Exception as e:
-          return jsonify({"status":400,"message":str(e)})
-    
+        return jsonify({"status": 400, "message": str(e)})
 
 
-# --------------------------- USER STOCK Routes -----------------------
-
-
-@app.route('/stock',methods=['POST'])
-def stock():
-
+@app.route('/updateProducts', methods=['PATCH'])
+@jwt_required()
+def update_product():
     try:
-        user_id = request.form['user_id']  
-        product_id = request.form['product_id']
-        order_id = request.form['order_id']
-        product_name = request.form['product_name']
-        user_name = request.form['user_name']
-        certified = request.form['certified']
-        stock = request.form['stocks']
-        price = request.form['price']
-        category = request.form['product_category']
+        data = get_json()
+        product_id = data.get('ProductID', '')
+        if not product_id:
+            return jsonify({"status": 400, "message": "ProductID is required"})
 
-        if(validate_stock_data(user_id,product_id,product_name,user_name,certified,stock,price,category,order_id)):
-            stockId = addStockOperation(
-                user_id=user_id,
-                user_name=user_name,
-                product_id=product_id,
-                category=category,
-                product_name=product_name,
-                certified=certified,
-                price=price,
-                stock=stock,
-                order_id=order_id
-           )
-        else:
-             return jsonify({"status": "Invalid User", "message": "Mandatory field empty"})
-                 
-        if stockId:
-            return jsonify({"status" : 200,"message" : "Stock Product added."})
-        else:
-            return jsonify({"status" : 400 ,"message":"Something went wrong."})
-        
+        allowed_fields = {
+            'product_name', 'product_category', 'product_price',
+            'product_stock', 'product_expiry_date', 'product_rating',
+            'product_description', 'product_power'
+        }
+        update_fields = {k: v for k, v in data.items() if k in allowed_fields}
+
+        if not update_fields:
+            return jsonify({"status": 400, "message": "No valid fields to update"})
+
+        updateProductAllFields(productId=product_id, **update_fields)
+        return jsonify({"status": 200, "message": "Product updated successfully"})
+
     except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
-    
-def validate_stock_data(user_id,product_id,product_name,user_name,certified,stock,price,category,order_id):
-    if not user_id or not product_id or not product_name or not user_name or not certified or not stock or not price or not category or not order_id:
-        return 0
-    else:
-         return 1
+        return jsonify({"status": 400, "message": str(e)})
 
-@app.route('/getAllStock',methods=['GET'])
-def getAllStock():
-     return getAllStockItem()
 
-@app.route('/stockUpdate',methods=['PATCH'])
-def stockUpdateOperation():
+# ─────────────────────────────────────────────────────────────
+# Order Routes
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/order', methods=['POST'])
+@jwt_required()
+def create_order():
     try:
-        stockId = request.form['stock_id']
+        data = get_json()
+        current_user_id = get_jwt_identity()
 
-        allFields = request.form.items()
-        updateStock = {}
+        required = [
+            'product_id', 'product_name', 'product_category', 'product_image_id',
+            'user_name', 'product_quantity', 'product_price', 'subtotal_price',
+            'delivery_charge', 'tax_charge', 'total_price', 'order_date',
+            'user_address', 'user_pincode', 'user_mobile', 'user_email', 'order_status'
+        ]
+        missing = [f for f in required if not data.get(f)]
+        if missing:
+            return jsonify({"status": 400, "message": f"Missing fields: {', '.join(missing)}"})
 
-        for key,value in allFields:
-                    if key != 'stock_id':
-                            updateStock[key] = value
+        order_id = addOrderOperation(
+            user_id=current_user_id,
+            product_id=data.get('product_id'),
+            product_name=data.get('product_name'),
+            user_name=data.get('user_name'),
+            isApproved=data.get('isApproved', 0),
+            product_quantity=data.get('product_quantity'),
+            product_price=data.get('product_price'),
+            totalPrice=data.get('total_price'),
+            orderDate=data.get('order_date'),
+            product_category=data.get('product_category'),
+            product_image_id=data.get('product_image_id'),
+            subtotal_price=data.get('subtotal_price'),
+            tax_charge=data.get('tax_charge'),
+            delivery_charge=data.get('delivery_charge'),
+            user_email=data.get('user_email'),
+            user_address=data.get('user_address'),
+            user_mobile=data.get('user_mobile'),
+            user_pinCode=data.get('user_pincode'),
+            order_status=data.get('order_status'),
+            order_cancel_status=data.get('order_cancel_status', 'no'),
+            user_street=data.get('user_street', ''),
+            user_city=data.get('user_city', ''),
+            user_state=data.get('user_state', ''),
+            discountPrice=data.get('discount_price', 0),
+            shipped_date=data.get('shipped_date', ''),
+            out_of_delivery_date=data.get('out_of_delivery_date', ''),
+            delivered_date=data.get('delivered_date', '')
+        )
 
-        isUpdated = updateStockAllFields(stockId,**updateStock)
-        if(isUpdated):  
-                    return jsonify({"status":200,"message":"Stock updated Successfull"})
+        if order_id:
+            return jsonify({"status": 200, "message": "Order placed successfully"})
         else:
-                    return jsonify({"status":400,"message":"Stock Id not found!"})
-                          
-    except Exception as e:
-              return jsonify({"status":400,"message":str(e)})
+            return jsonify({"status": 400, "message": "Failed to place order"})
 
-@app.route('/deleteStock',methods=['DELETE'])
-def deleteStockOperation():
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/getAllOrders', methods=['GET'])
+@jwt_required()
+def get_all_orders():
+    return getAllOrder()
+
+
+@app.route('/getAllOrderThroughUser', methods=['GET'])
+@jwt_required()
+def get_orders_for_user():
     try:
-          stockId = request.form['stock_id']
-          isDeleted = deleteStock(stockId=stockId)
-
-          if(isDeleted):  
-                return jsonify({"status":200,"message":"Stock Deleted Successfully"})
-          else:
-                return jsonify({"status":400,"message":"Stock Id not found!"})
-     
+        user_id = get_jwt_identity()
+        return getAllOrderThroughUser(user_id=user_id)
     except Exception as e:
-          return jsonify({"status":400,"message":str(e)})
-
-# --------------------------- History Routes -----------------------
+        return jsonify({"status": 400, "message": str(e)})
 
 
-
-@app.route('/sell_history',methods=['POST'])
-def sell_History():
+@app.route('/getSpecificOrder', methods=['POST'])
+@jwt_required()
+def get_specific_order():
     try:
-        user_id = request.form['user_id']  #field name
-        product_id = request.form['product_id']
-        quantity = request.form['quantity']
-        remaining_stock = request.form['remaining_stock']
-        date_of_sell = request.form['date_of_sell']
-        total_amount = request.form['total_amount']
-        price = request.form['price']
-        product_name = request.form['product_name']
-        user_name = request.form['user_name']
-        product_category = request.form['product_category']
-
-        if(validate_history_data(user_id,product_id,product_name,user_name,quantity,remaining_stock,price,product_category,date_of_sell,total_amount)):
-            stockId = addSellHistoryOperation(
-                user_id=user_id,
-                user_name=user_name,
-                product_id=product_id,
-                product_category=product_category,
-                product_name=product_name,
-                price=price,
-                remaining_stock=remaining_stock,
-                date_of_sell=date_of_sell,
-                total_amount=total_amount,
-                quantity=quantity
-           )
-        else:
-             return jsonify({"status": 400, "message": "Mandatory field empty"})
-                 
-        if stockId:
-            return jsonify({"status" : 200,"message" : stockId})
-        else:
-            return jsonify({"status" : 400 ,"message":"Something went wrong."})
-        
+        data = get_json()
+        order_id = data.get('order_id', '')
+        if not order_id:
+            return jsonify({"status": 400, "message": "order_id is required"})
+        return getSpecificOrder(orderId=order_id)
     except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
-    
-def validate_history_data(user_id,product_id,product_name,user_name,quantity,remaining_stock,price,product_category,date_of_sell,total_amount):
-    if not user_id or not product_id or not product_name or not user_name or not quantity or not remaining_stock or not price or not product_category or not date_of_sell or not total_amount:
-        return 0
-    else:
-         return 1
+        return jsonify({"status": 400, "message": str(e)})
 
-@app.route('/getAllSellHistory',methods=['GET'])
-def getAllSellHistoryOperation():
+
+@app.route('/updateOrder', methods=['PATCH'])
+@jwt_required()
+def update_order():
+    try:
+        data = get_json()
+        order_id = data.get('orderId', '')
+        if not order_id:
+            return jsonify({"status": 400, "message": "orderId is required"})
+
+        update_fields = {k: v for k, v in data.items() if k != 'orderId'}
+
+        is_updated = updateOrderAllFields(order_id, **update_fields)
+        if is_updated:
+            return jsonify({"status": 200, "message": "Order updated successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Order not found"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/deleteOrder', methods=['DELETE'])
+@jwt_required()
+def delete_order():
+    try:
+        data = get_json()
+        order_id = data.get('order_id', '')
+        if not order_id:
+            return jsonify({"status": 400, "message": "order_id is required"})
+
+        is_deleted = deleteOrder(orderId=order_id)
+        if is_deleted:
+            return jsonify({"status": 200, "message": "Order deleted successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Order not found"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+# ─────────────────────────────────────────────────────────────
+# Stock Routes
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/stock', methods=['POST'])
+@jwt_required()
+def add_stock():
+    try:
+        data = get_json()
+        current_user_id = get_jwt_identity()
+
+        required = ['product_id', 'order_id', 'product_name', 'user_name', 'certified', 'stocks', 'price', 'product_category']
+        missing = [f for f in required if not data.get(f)]
+        if missing:
+            return jsonify({"status": 400, "message": f"Missing fields: {', '.join(missing)}"})
+
+        stock_id = addStockOperation(
+            user_id=current_user_id,
+            user_name=data.get('user_name'),
+            product_id=data.get('product_id'),
+            category=data.get('product_category'),
+            product_name=data.get('product_name'),
+            certified=data.get('certified'),
+            price=data.get('price'),
+            stock=data.get('stocks'),
+            order_id=data.get('order_id')
+        )
+
+        if stock_id:
+            return jsonify({"status": 200, "message": "Stock added successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Failed to add stock"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/getAllStock', methods=['GET'])
+@jwt_required()
+def get_all_stock():
+    return getAllStockItem()
+
+
+@app.route('/stockUpdate', methods=['PATCH'])
+@jwt_required()
+def update_stock():
+    try:
+        data = get_json()
+        stock_id = data.get('stock_id', '')
+        if not stock_id:
+            return jsonify({"status": 400, "message": "stock_id is required"})
+
+        update_fields = {k: v for k, v in data.items() if k != 'stock_id'}
+        is_updated = updateStockAllFields(stock_id, **update_fields)
+
+        if is_updated:
+            return jsonify({"status": 200, "message": "Stock updated successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Stock not found"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/deleteStock', methods=['DELETE'])
+@jwt_required()
+def delete_stock():
+    try:
+        data = get_json()
+        stock_id = data.get('stock_id', '')
+        if not stock_id:
+            return jsonify({"status": 400, "message": "stock_id is required"})
+
+        is_deleted = deleteStock(stockId=stock_id)
+        if is_deleted:
+            return jsonify({"status": 200, "message": "Stock deleted successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Stock not found"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+# ─────────────────────────────────────────────────────────────
+# Sell History Routes
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/sell_history', methods=['POST'])
+@jwt_required()
+def add_sell_history():
+    try:
+        data = get_json()
+        current_user_id = get_jwt_identity()
+
+        required = ['product_id', 'quantity', 'remaining_stock', 'date_of_sell', 'total_amount', 'price', 'product_name', 'user_name', 'product_category']
+        missing = [f for f in required if not data.get(f)]
+        if missing:
+            return jsonify({"status": 400, "message": f"Missing fields: {', '.join(missing)}"})
+
+        history_id = addSellHistoryOperation(
+            user_id=current_user_id,
+            user_name=data.get('user_name'),
+            product_id=data.get('product_id'),
+            product_category=data.get('product_category'),
+            product_name=data.get('product_name'),
+            price=data.get('price'),
+            remaining_stock=data.get('remaining_stock'),
+            date_of_sell=data.get('date_of_sell'),
+            total_amount=data.get('total_amount'),
+            quantity=data.get('quantity')
+        )
+
+        if history_id:
+            return jsonify({"status": 200, "message": "Sell history recorded"})
+        else:
+            return jsonify({"status": 400, "message": "Failed to record sell history"})
+
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/getAllSellHistory', methods=['GET'])
+@jwt_required()
+def get_all_sell_history():
     return getAllSellHistoryItem()
 
 
-@app.route('/getSpecificSellHistory',methods=['POST'])
-def getSpecificSellHistoryProduct():
+@app.route('/getSpecificSellHistory', methods=['POST'])
+@jwt_required()
+def get_specific_sell_history():
     try:
-          sellId = request.form['sell_id']
-          getSellHistoryInfo = getSpecificSellHistoryItem(sell_id=sellId)
-          return getSellHistoryInfo
-     
+        data = get_json()
+        sell_id = data.get('sell_id', '')
+        if not sell_id:
+            return jsonify({"status": 400, "message": "sell_id is required"})
+        return getSpecificSellHistoryItem(sell_id=sell_id)
     except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
+        return jsonify({"status": 400, "message": str(e)})
 
-@app.route('/updateSellHistory',methods=['PATCH'])
-def updateSellHistoryItem():
+
+@app.route('/updateSellHistory', methods=['PATCH'])
+@jwt_required()
+def update_sell_history():
     try:
-        sellId = request.form['sell_id']
+        data = get_json()
+        sell_id = data.get('sell_id', '')
+        if not sell_id:
+            return jsonify({"status": 400, "message": "sell_id is required"})
 
-        allFields = request.form.items()
-        updateSellItem = {}
+        update_fields = {k: v for k, v in data.items() if k != 'sell_id'}
+        is_updated = updateSellHistoryItemFields(sell_id, **update_fields)
 
-        for key,value in allFields:
-                    if key != 'sell_id':
-                            updateSellItem[key] = value
-
-        isUpdated = updateSellHistoryItemFields(sellId,**updateSellItem)
-        if(isUpdated):  
-            return jsonify({"status":200,"message":"Sell history updated Successfull"})
+        if is_updated:
+            return jsonify({"status": 200, "message": "Sell history updated successfully"})
         else:
-            return jsonify({"status":400,"message":"Sell Id not found!"})
-                          
-    except Exception as e:
-        return jsonify({"status":400,"message":str(e)})
+            return jsonify({"status": 400, "message": "Record not found"})
 
-@app.route('/deleteSellHistory',methods=['DELETE'])
-def deleteSellHistoryOperation():
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/deleteSellHistory', methods=['DELETE'])
+@jwt_required()
+def delete_sell_history():
     try:
-          sell_id = request.form['sell_id']
-          isDeleted = deleteSellHistroyItem(sell_Id=sell_id)
+        data = get_json()
+        sell_id = data.get('sell_id', '')
+        if not sell_id:
+            return jsonify({"status": 400, "message": "sell_id is required"})
 
-          if(isDeleted):  
-                return jsonify({"status":200,"message":"History Sell item Deleted Successfully"})
-          else:
-                return jsonify({"status":400,"message":"Sell Id not found!"})
-     
+        is_deleted = deleteSellHistroyItem(sell_Id=sell_id)
+        if is_deleted:
+            return jsonify({"status": 200, "message": "Sell history deleted successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Record not found"})
+
     except Exception as e:
-          return jsonify({"status":400,"message":str(e)})
+        return jsonify({"status": 400, "message": str(e)})
 
 
-if __name__ =="__main__":
+# ─────────────────────────────────────────────────────────────
+# App entry
+# ─────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
     createTables()
+    createBannerTable()
     CreateProductTable()
     CreateOrderTable()
     createStockTable()
     createHistoryTable()
-
-    
     app.run(debug=True)

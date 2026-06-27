@@ -1,70 +1,42 @@
 import sqlite3
 import json
+from flask import jsonify
+
+
+def _user_to_dict(user):
+    return {
+        "id": user[0],
+        "user_id": user[1],
+        # password (index 2) intentionally omitted
+        "level": user[3],
+        "created_at": str(user[4]),
+        "is_approved": user[5],
+        "is_blocked": user[6] == "1" or user[6] == 1,
+        "name": user[7],
+        "email": user[8],
+        "phone": user[9],
+        "pin_code": user[10],
+        "address": user[11]
+    }
 
 
 def getAllUsers():
     conn = sqlite3.connect("my_medicalshop.db")
     cursor = conn.cursor()
-
     cursor.execute("SELECT * FROM Users")
-
     users = cursor.fetchall()
     conn.close()
-
-    userJson=[]
-    for user in users:
-        tempUser ={
-            "id": user[0],
-            "user_id": user[1],
-            "password": user[2],
-            "level": user[3],
-            "date_of_Account_Creatrion": user[4],
-            "isApproved": user[5],
-            "block": user[6],
-            "name": user[7],
-            "email": user[8],
-            "phone": user[9],
-            "pinCode": user[10],
-             "address": user[11]
-        }
-        userJson.append(tempUser)
-
-         
-    return(json.dumps(userJson)) 
-
+    return json.dumps([_user_to_dict(u) for u in users])
 
 
 def getSpecificUser(userID):
-     conn = sqlite3.connect("my_medicalshop.db")
-     cursor = conn.cursor()
+    conn = sqlite3.connect("my_medicalshop.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM Users WHERE user_id = ?", (userID,))
+    user = cursor.fetchone()
+    conn.close()
 
-     cursor.execute("SELECT * FROM Users WHERE user_id=? ",(userID,))
-     users =cursor.fetchall()
-     conn.close()
+    if user is None:
+        return jsonify({"status": 404, "message": "User not found"}), 404
 
-
-     userJson=[]
-
-    
-     for user in users:
-        tempUser ={
-            "id": user[0],
-            "user_id": user[1],
-            "password": user[2],
-            "level": user[3],
-            "date_of_Account_Creatrion": user[4],
-            "isApproved": user[5],
-            "block": user[6],
-            "name": user[7],
-            "email": user[8],
-            "phone": user[9],
-            "pinCode": user[10],
-             "address": user[11]
-        }
-        userJson.append(tempUser)
-
-         
-     return(json.dumps(tempUser)) 
-
-
-
+    return jsonify(_user_to_dict(user))

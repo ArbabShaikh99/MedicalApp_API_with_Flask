@@ -254,6 +254,18 @@ def delete_user():
 
 
 # ─────────────────────────────────────────────────────────────
+# App Config (public — no auth required)
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/getConfig', methods=['GET'])
+def get_config():
+    return jsonify({
+        "status": 200,
+        "delivery_charge": 250,
+        "store_pickup_charge": 0
+    })
+
+# ─────────────────────────────────────────────────────────────
 # Product Routes (read is public, write is protected)
 # ─────────────────────────────────────────────────────────────
 
@@ -523,6 +535,24 @@ def delete_order():
         else:
             return jsonify({"status": 400, "message": "Order not found"})
 
+    except Exception as e:
+        return jsonify({"status": 400, "message": str(e)})
+
+
+@app.route('/cancelOrder', methods=['PATCH'])
+@jwt_required()
+def cancel_order():
+    try:
+        data = get_json()
+        order_id = data.get('order_id', '')
+        if not order_id:
+            return jsonify({"status": 400, "message": "order_id is required"})
+
+        is_updated = updateOrderAllFields(order_id, order_status='cancelled', order_cancel_status='yes')
+        if is_updated:
+            return jsonify({"status": 200, "message": "Order cancelled successfully"})
+        else:
+            return jsonify({"status": 400, "message": "Order not found"})
     except Exception as e:
         return jsonify({"status": 400, "message": str(e)})
 

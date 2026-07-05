@@ -424,10 +424,10 @@ def create_order():
         required = [
             'product_id', 'product_name', 'product_category', 'product_image_id',
             'user_name', 'product_quantity', 'product_price', 'subtotal_price',
-            'delivery_charge', 'tax_charge', 'total_price', 'order_date',
-            'user_address', 'user_pincode', 'user_mobile', 'user_email', 'order_status'
+            'delivery_charge', 'total_price', 'order_date',
+            'user_address', 'user_mobile', 'user_email', 'order_status'
         ]
-        missing = [f for f in required if not data.get(f)]
+        missing = [f for f in required if data.get(f) is None or data.get(f) == ""]
         if missing:
             return jsonify({"status": 400, "message": f"Missing fields: {', '.join(missing)}"})
 
@@ -441,6 +441,7 @@ def create_order():
             product_price=data.get('product_price'),
             totalPrice=data.get('total_price'),
             orderDate=data.get('order_date'),
+            orderTime=data.get('order_time', ''),
             product_category=data.get('product_category'),
             product_image_id=data.get('product_image_id'),
             subtotal_price=data.get('subtotal_price'),
@@ -569,7 +570,7 @@ def add_stock():
         current_user_id = get_jwt_identity()
 
         required = ['product_id', 'order_id', 'product_name', 'user_name', 'certified', 'stocks', 'price', 'product_category']
-        missing = [f for f in required if not data.get(f)]
+        missing = [f for f in required if data.get(f) is None or data.get(f) == ""]
         if missing:
             return jsonify({"status": 400, "message": f"Missing fields: {', '.join(missing)}"})
 
@@ -652,7 +653,7 @@ def add_sell_history():
         current_user_id = get_jwt_identity()
 
         required = ['product_id', 'quantity', 'remaining_stock', 'date_of_sell', 'total_amount', 'price', 'product_name', 'user_name', 'product_category']
-        missing = [f for f in required if not data.get(f)]
+        missing = [f for f in required if data.get(f) is None or data.get(f) == ""]
         if missing:
             return jsonify({"status": 400, "message": f"Missing fields: {', '.join(missing)}"})
 

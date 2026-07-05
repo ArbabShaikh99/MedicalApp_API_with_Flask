@@ -1,5 +1,6 @@
 import sqlite3
 import json
+from flask import Response
 
 def getAllOrder():
     conn = sqlite3.connect("my_medicalshop.db")
@@ -41,10 +42,11 @@ def getAllOrder():
             "discount_price":orderItem[25],
             "shipped_date":orderItem[26],
             "out_of_delivery_date":orderItem[27],
-            "delivered_date":orderItem[28]
+            "delivered_date":orderItem[28],
+            "order_time":orderItem[29] if len(orderItem) > 29 else ""
         }
         ordersJson.append(tempOrder)
-    return json.dumps(ordersJson)
+    return Response(json.dumps(ordersJson), mimetype='application/json')
 
 
 def getSpecificOrder(orderId):
@@ -87,12 +89,13 @@ def getSpecificOrder(orderId):
             "discount_price":orderItem[25],
             "shipped_date":orderItem[26],
             "out_of_delivery_date":orderItem[27],
-            "delivered_date":orderItem[28]
+            "delivered_date":orderItem[28],
+            "order_time":orderItem[29] if len(orderItem) > 29 else ""
         }
-        
+
     orderJson.append(tempOrderSpecific)
 
-    return json.dumps(orderJson)
+    return Response(json.dumps(orderJson), mimetype='application/json')
 
 def getAllOrderThroughUser(user_id):
     conn = sqlite3.connect("my_medicalshop.db")
@@ -135,9 +138,10 @@ def getAllOrderThroughUser(user_id):
             "discount_price":orderItem[25],
             "shipped_date":orderItem[26],
             "out_of_delivery_date":orderItem[27],
-            "delivered_date":orderItem[28]
+            "delivered_date":orderItem[28],
+            "order_time":orderItem[29] if len(orderItem) > 29 else ""
         }
-        
+
         orderThroughUserIdJson.append(tempOrderThroughUserId)
 
-    return json.dumps(orderThroughUserIdJson)
+    return Response(json.dumps(orderThroughUserIdJson), mimetype='application/json')
